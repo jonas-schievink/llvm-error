@@ -17,9 +17,9 @@ enum Out {
 
 #[allow(unused_must_use)]
 fn main() {
-    let mut rx = tokio::sync::unbounded_channel::<Msg>();
+    let mut rx = tokio::unbounded_channel::<Msg>();
     let entity = Mutex::new(());
-    tokio::runtime::run(async move {
+    tokio::run(async move {
         {
             let output = {
                 let mut fut = rx.recv();
