@@ -37,9 +37,6 @@
 
 pub(super) mod block;
 
-mod bounded;
-pub use self::bounded::{channel, Receiver, Sender};
-
 mod chan;
 
 pub(super) mod list;

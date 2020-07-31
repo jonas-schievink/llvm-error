@@ -1,4 +1,3 @@
-//!
 pub mod mpsc;
 
 pub(crate) mod semaphore_ll;

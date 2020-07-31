@@ -139,9 +139,6 @@ const NUM_FLAG: usize = 0b01;
 /// Signal the semaphore is closed
 const CLOSED_FLAG: usize = 0b10;
 
-/// Maximum number of permits a semaphore can manage
-const MAX_PERMITS: usize = usize::MAX >> NUM_SHIFT;
-
 /// When representing "numbers", the state has to be shifted this much (to get
 /// rid of the flag bit).
 const NUM_SHIFT: usize = 2;
@@ -149,28 +146,6 @@ const NUM_SHIFT: usize = 2;
 // ===== impl Semaphore =====
 
 impl Semaphore {
-    /// Creates a new semaphore with the initial number of permits
-    ///
-    /// # Panics
-    ///
-    /// Panics if `permits` is zero.
-    pub(crate) fn new(permits: usize) -> Semaphore {
-        let stub = Box::new(Waiter::new());
-        let ptr = NonNull::from(&*stub);
-
-        // Allocations are aligned
-        debug_assert!(ptr.as_ptr() as usize & NUM_FLAG == 0);
-
-        let state = SemState::new(permits, &stub);
-
-        Semaphore {
-            state: AtomicUsize::new(state.to_usize()),
-            head: UnsafeCell::new(ptr),
-            rx_lock: AtomicUsize::new(0),
-            stub,
-        }
-    }
-
     /// Returns the current number of available permits
     pub(crate) fn available_permits(&self) -> usize {
         let curr = SemState(self.state.load(Acquire));
@@ -1031,17 +1006,6 @@ impl Waiter {
 // ===== impl SemState =====
 
 impl SemState {
-    /// Returns a new default `State` value.
-    fn new(permits: usize, stub: &Waiter) -> SemState {
-        assert!(permits <= MAX_PERMITS);
-
-        if permits > 0 {
-            SemState((permits << NUM_SHIFT) | NUM_FLAG)
-        } else {
-            SemState(stub as *const _ as usize)
-        }
-    }
-
     /// Returns a `State` tracking `ptr` as the tail of the queue.
     fn new_ptr(tail: NonNull<Waiter>, closed: bool) -> SemState {
         let mut val = tail.as_ptr() as usize;
@@ -1160,11 +1124,6 @@ impl SemState {
 
     fn is_closed(self) -> bool {
         self.0 & CLOSED_FLAG == CLOSED_FLAG
-    }
-
-    /// Converts the state into a `usize` representation.
-    fn to_usize(self) -> usize {
-        self.0
     }
 }
 
