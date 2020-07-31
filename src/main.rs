@@ -19,41 +19,38 @@ enum Out {
 fn main() {
     let mut rx = tokio::sync::unbounded_channel::<Msg>();
     let entity = Mutex::new(());
-    tokio::runtime::Builder::new()
-        .build()
-        .unwrap()
-        .block_on(async move {
-            {
-                let output = {
-                    let mut fut = rx.recv();
-                    ::tokio::future::poll_fn(|cx| {
-                        loop {
-                            let fut = unsafe { Pin::new_unchecked(&mut fut) };
-                            let out = match fut.poll(cx) {
-                                Ready(out) => out,
-                                Pending => {
-                                    break;
-                                }
-                            };
-                            #[allow(unused_variables)]
-                            match &out {
-                                Some(_msg) => {}
-                                _ => break,
+    tokio::runtime::run(async move {
+        {
+            let output = {
+                let mut fut = rx.recv();
+                ::tokio::future::poll_fn(|cx| {
+                    loop {
+                        let fut = unsafe { Pin::new_unchecked(&mut fut) };
+                        let out = match fut.poll(cx) {
+                            Ready(out) => out,
+                            Pending => {
+                                break;
                             }
-                            return Ready(Out::_0(out));
+                        };
+                        #[allow(unused_variables)]
+                        match &out {
+                            Some(_msg) => {}
+                            _ => break,
                         }
-                        Ready(Out::_0(None))
-                    })
-                    .await
-                };
-                match output {
-                    Out::_0(Some(_msg)) => {
-                        entity.lock();
+                        return Ready(Out::_0(out));
                     }
-                    Out::_0(None) => unreachable!(),
-                    _ => unreachable!(),
+                    Ready(Out::_0(None))
+                })
+                .await
+            };
+            match output {
+                Out::_0(Some(_msg)) => {
+                    entity.lock();
                 }
+                Out::_0(None) => unreachable!(),
+                _ => unreachable!(),
             }
-            entity.lock();
-        });
+        }
+        entity.lock();
+    });
 }

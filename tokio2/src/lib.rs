@@ -19,8 +19,4 @@ pub(crate) mod coop;
 
 pub mod sync;
 
-pub(crate) mod task {
-    pub use crate::runtime::task::JoinHandle;
-}
-
 mod util;
