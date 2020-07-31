@@ -1,19 +1,8 @@
 //! Channel error types
 
-use std::error::Error;
-use std::fmt;
-
 /// Error returned by the `Sender`.
 #[derive(Debug)]
 pub struct SendError<T>(pub T);
-
-impl<T> fmt::Display for SendError<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "channel closed")
-    }
-}
-
-impl<T: fmt::Debug> std::error::Error for SendError<T> {}
 
 // ===== TrySendError =====
 
@@ -28,55 +17,6 @@ pub enum TrySendError<T> {
     /// The receive half of the channel was explicitly closed or has been
     /// dropped.
     Closed(T),
-}
-
-impl<T: fmt::Debug> Error for TrySendError<T> {}
-
-impl<T> fmt::Display for TrySendError<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            fmt,
-            "{}",
-            match self {
-                TrySendError::Full(..) => "no available capacity",
-                TrySendError::Closed(..) => "channel closed",
-            }
-        )
-    }
-}
-
-impl<T> From<SendError<T>> for TrySendError<T> {
-    fn from(src: SendError<T>) -> TrySendError<T> {
-        TrySendError::Closed(src.0)
-    }
-}
-
-// ===== RecvError =====
-
-/// Error returned by `Receiver`.
-#[derive(Debug)]
-pub struct RecvError(());
-
-impl fmt::Display for RecvError {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "channel closed")
-    }
-}
-
-impl Error for RecvError {}
-
-// ===== TryRecvError =====
-
-/// This enumeration is the list of the possible reasons that try_recv
-/// could not return data when called.
-#[derive(Debug, PartialEq)]
-pub enum TryRecvError {
-    /// This channel is currently empty, but the Sender(s) have not yet
-    /// disconnected, so data may yet become available.
-    Empty,
-    /// The channel's sending half has been closed, and there will
-    /// never be any more data received on it.
-    Closed,
 }
 
 // ===== ClosedError =====

@@ -5,29 +5,15 @@ use crate::loom::sync::Arc;
 use crate::sync::mpsc::error::ClosedError;
 use crate::sync::mpsc::{error, list};
 
-use std::fmt;
-use std::process;
-use std::sync::atomic::Ordering::{AcqRel, Relaxed};
+use std::sync::atomic::Ordering::Relaxed;
 use std::task::Poll::{Pending, Ready};
 use std::task::{Context, Poll};
 
 /// Channel sender
+#[allow(dead_code)]
 pub(crate) struct Tx<T, S: Semaphore> {
     inner: Arc<Chan<T, S>>,
     permit: S::Permit,
-}
-
-impl<T, S: Semaphore> fmt::Debug for Tx<T, S>
-where
-    S::Permit: fmt::Debug,
-    S: fmt::Debug,
-{
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("Tx")
-            .field("inner", &self.inner)
-            .field("permit", &self.permit)
-            .finish()
-    }
 }
 
 /// Channel receiver
@@ -35,15 +21,7 @@ pub(crate) struct Rx<T, S: Semaphore> {
     inner: Arc<Chan<T, S>>,
 }
 
-impl<T, S: Semaphore> fmt::Debug for Rx<T, S>
-where
-    S: fmt::Debug,
-{
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("Rx").field("inner", &self.inner).finish()
-    }
-}
-
+#[allow(dead_code)]
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum TrySendError {
     Closed,
@@ -117,21 +95,6 @@ struct Chan<T, S> {
     rx_fields: UnsafeCell<RxFields<T>>,
 }
 
-impl<T, S> fmt::Debug for Chan<T, S>
-where
-    S: fmt::Debug,
-{
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("Chan")
-            .field("tx", &self.tx)
-            .field("semaphore", &self.semaphore)
-            .field("rx_waker", &self.rx_waker)
-            .field("tx_count", &self.tx_count)
-            .field("rx_fields", &"...")
-            .finish()
-    }
-}
-
 /// Fields only accessed by `Rx` handle.
 struct RxFields<T> {
     /// Channel receiver. This field is only accessed by the `Receiver` type.
@@ -139,15 +102,6 @@ struct RxFields<T> {
 
     /// `true` if `Rx::close` is called.
     rx_closed: bool,
-}
-
-impl<T> fmt::Debug for RxFields<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("RxFields")
-            .field("list", &self.list)
-            .field("rx_closed", &self.rx_closed)
-            .finish()
-    }
 }
 
 unsafe impl<T: Send, S: Send> Send for Chan<T, S> {}
@@ -200,25 +154,6 @@ where
             inner: self.inner.clone(),
             permit: S::new_permit(),
         }
-    }
-}
-
-impl<T, S> Drop for Tx<T, S>
-where
-    S: Semaphore,
-{
-    fn drop(&mut self) {
-        self.inner.semaphore.drop_permit(&mut self.permit);
-
-        if self.inner.tx_count.fetch_sub(1, AcqRel) != 1 {
-            return;
-        }
-
-        // Close the list, which sends a `Close` message
-        self.inner.tx.close();
-
-        // Notify the receiver
-        self.inner.rx_waker.wake();
     }
 }
 
@@ -282,22 +217,6 @@ where
     }
 }
 
-// ===== impl Chan =====
-
-use crate::sync::semaphore_ll::TryAcquireError;
-
-impl From<TryAcquireError> for TrySendError {
-    fn from(src: TryAcquireError) -> TrySendError {
-        if src.is_closed() {
-            TrySendError::Closed
-        } else if src.is_no_permits() {
-            TrySendError::Full
-        } else {
-            unreachable!();
-        }
-    }
-}
-
 // ===== impl Semaphore for (::Semaphore, capacity) =====
 
 use crate::sync::semaphore_ll::Permit;
@@ -309,13 +228,9 @@ impl Semaphore for (crate::sync::semaphore_ll::Semaphore, usize) {
         Permit::new()
     }
 
-    fn drop_permit(&self, permit: &mut Permit) {
-        permit.release(1, &self.0);
-    }
+    fn drop_permit(&self, _permit: &mut Permit) {}
 
-    fn add_permit(&self) {
-        self.0.add_permits(1)
-    }
+    fn add_permit(&self) {}
 
     fn is_idle(&self) -> bool {
         self.0.available_permits() == self.1
@@ -334,23 +249,17 @@ impl Semaphore for (crate::sync::semaphore_ll::Semaphore, usize) {
             .map_err(|_| ClosedError::new())
     }
 
-    fn try_acquire(&self, permit: &mut Permit) -> Result<(), TrySendError> {
-        permit.try_acquire(1, &self.0)?;
+    fn try_acquire(&self, _permit: &mut Permit) -> Result<(), TrySendError> {
         Ok(())
     }
 
-    fn forget(&self, permit: &mut Self::Permit) {
-        permit.forget(1);
-    }
+    fn forget(&self, _permit: &mut Self::Permit) {}
 
-    fn close(&self) {
-        self.0.close();
-    }
+    fn close(&self) {}
 }
 
 // ===== impl Semaphore for AtomicUsize =====
 
-use std::sync::atomic::Ordering::{Acquire, Release};
 use std::usize;
 
 impl Semaphore for AtomicUsize {
@@ -360,17 +269,10 @@ impl Semaphore for AtomicUsize {
 
     fn drop_permit(&self, _permit: &mut ()) {}
 
-    fn add_permit(&self) {
-        let prev = self.fetch_sub(2, Release);
-
-        if prev >> 1 == 0 {
-            // Something went wrong
-            process::abort();
-        }
-    }
+    fn add_permit(&self) {}
 
     fn is_idle(&self) -> bool {
-        self.load(Acquire) >> 1 == 0
+        false
     }
 
     fn poll_acquire(
@@ -382,31 +284,10 @@ impl Semaphore for AtomicUsize {
     }
 
     fn try_acquire(&self, _permit: &mut ()) -> Result<(), TrySendError> {
-        let mut curr = self.load(Acquire);
-
-        loop {
-            if curr & 1 == 1 {
-                return Err(TrySendError::Closed);
-            }
-
-            if curr == usize::MAX ^ 1 {
-                // Overflowed the ref count. There is no safe way to recover, so
-                // abort the process. In practice, this should never happen.
-                process::abort()
-            }
-
-            match self.compare_exchange(curr, curr + 2, AcqRel, Acquire) {
-                Ok(_) => return Ok(()),
-                Err(actual) => {
-                    curr = actual;
-                }
-            }
-        }
+        Ok(())
     }
 
     fn forget(&self, _permit: &mut ()) {}
 
-    fn close(&self) {
-        self.fetch_or(1, Release);
-    }
+    fn close(&self) {}
 }

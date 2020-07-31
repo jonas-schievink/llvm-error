@@ -1,7 +1,6 @@
 use crate::loom::sync::atomic::AtomicUsize;
 use crate::sync::mpsc::chan;
 
-use std::fmt;
 use std::task::{Context, Poll};
 
 /// Send values to the associated `UnboundedReceiver`.
@@ -17,14 +16,6 @@ impl<T> Clone for UnboundedSender<T> {
         UnboundedSender {
             chan: self.chan.clone(),
         }
-    }
-}
-
-impl<T> fmt::Debug for UnboundedSender<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("UnboundedSender")
-            .field("chan", &self.chan)
-            .finish()
     }
 }
 

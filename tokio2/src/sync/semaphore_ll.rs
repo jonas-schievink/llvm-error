@@ -62,6 +62,7 @@ pub(crate) struct AcquireError(());
 
 /// Error returned by `Permit::try_acquire`.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(crate) enum TryAcquireError {
     Closed,
     NoPermits,
@@ -167,13 +168,6 @@ impl Semaphore {
 
             Some(NonNull::from(&**waiter))
         })
-    }
-
-    fn try_acquire(&self, num_permits: u16) -> Result<(), TryAcquireError> {
-        match self.poll_acquire2(num_permits, || None) {
-            Poll::Ready(res) => res.map_err(to_try_acquire),
-            Poll::Pending => Err(TryAcquireError::NoPermits),
-        }
     }
 
     /// Polls for a permit
@@ -668,100 +662,6 @@ impl Permit {
             }
         }
     }
-
-    /// Tries to acquire the permit.
-    pub(crate) fn try_acquire(
-        &mut self,
-        num_permits: u16,
-        semaphore: &Semaphore,
-    ) -> Result<(), TryAcquireError> {
-        use PermitState::*;
-
-        match self.state {
-            Waiting(requested) => {
-                // There must be a waiter
-                let waiter = self.waiter.as_ref().unwrap();
-
-                if requested > num_permits {
-                    let delta = requested - num_permits;
-                    let to_release = waiter.try_dec_permits_to_acquire(delta as usize);
-
-                    semaphore.add_permits(to_release);
-                    self.state = Waiting(num_permits);
-                }
-
-                let res = waiter.permits_to_acquire().map_err(to_try_acquire)?;
-
-                if res == 0 {
-                    if requested < num_permits {
-                        // Try to acquire the additional permits
-                        semaphore.try_acquire(num_permits - requested)?;
-                    }
-
-                    self.state = Acquired(num_permits);
-                    Ok(())
-                } else {
-                    Err(TryAcquireError::NoPermits)
-                }
-            }
-            Acquired(acquired) => {
-                if acquired < num_permits {
-                    semaphore.try_acquire(num_permits - acquired)?;
-                    self.state = Acquired(num_permits);
-                }
-
-                Ok(())
-            }
-        }
-    }
-
-    /// Releases a permit back to the semaphore
-    pub(crate) fn release(&mut self, n: u16, semaphore: &Semaphore) {
-        let n = self.forget(n);
-        semaphore.add_permits(n as usize);
-    }
-
-    /// Forgets the permit **without** releasing it back to the semaphore.
-    ///
-    /// After calling `forget`, `poll_acquire` is able to acquire new permit
-    /// from the sempahore.
-    ///
-    /// Repeatedly calling `forget` without associated calls to `add_permit`
-    /// will result in the semaphore losing all permits.
-    ///
-    /// Will forget **at most** the number of acquired permits. This number is
-    /// returned.
-    pub(crate) fn forget(&mut self, n: u16) -> u16 {
-        use PermitState::*;
-
-        match self.state {
-            Waiting(requested) => {
-                let n = cmp::min(n, requested);
-
-                // Decrement
-                let acquired = self
-                    .waiter
-                    .as_ref()
-                    .unwrap()
-                    .try_dec_permits_to_acquire(n as usize) as u16;
-
-                if n == requested {
-                    self.state = Acquired(0);
-                } else if acquired == requested - n {
-                    self.state = Waiting(acquired);
-                } else {
-                    self.state = Waiting(requested - n);
-                }
-
-                acquired
-            }
-            Acquired(acquired) => {
-                let n = cmp::min(n, acquired);
-                self.state = Acquired(acquired - n);
-                n
-            }
-        }
-    }
 }
 
 impl Default for Permit {
@@ -792,10 +692,6 @@ impl AcquireError {
     }
 }
 
-fn to_try_acquire(_: AcquireError) -> TryAcquireError {
-    TryAcquireError::Closed
-}
-
 impl fmt::Display for AcquireError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(fmt, "semaphore closed")
@@ -803,27 +699,6 @@ impl fmt::Display for AcquireError {
 }
 
 impl std::error::Error for AcquireError {}
-
-// ===== impl TryAcquireError =====
-
-impl TryAcquireError {
-    /// Returns `true` if the error was caused by a closed semaphore.
-    pub(crate) fn is_closed(&self) -> bool {
-        match self {
-            TryAcquireError::Closed => true,
-            _ => false,
-        }
-    }
-
-    /// Returns `true` if the error was caused by calling `try_acquire` on a
-    /// semaphore with no available permits.
-    pub(crate) fn is_no_permits(&self) -> bool {
-        match self {
-            TryAcquireError::NoPermits => true,
-            _ => false,
-        }
-    }
-}
 
 impl fmt::Display for TryAcquireError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
