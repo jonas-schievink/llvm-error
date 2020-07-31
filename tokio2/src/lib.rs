@@ -349,7 +349,6 @@ pub mod macros;
 pub mod future;
 
 pub mod io;
-pub mod net;
 
 mod loom;
 mod park;
