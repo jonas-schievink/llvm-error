@@ -9,6 +9,12 @@ enum Msg {
     B,
 }
 
+#[allow(dead_code)]
+enum Out {
+    _0(Option<Msg>),
+    Disabled,
+}
+
 #[allow(unused_must_use)]
 fn main() {
     let (_, mut rx) = tokio::sync::mpsc::unbounded_channel::<Msg>();
@@ -18,54 +24,34 @@ fn main() {
         .unwrap()
         .block_on(async move {
             {
-                mod util {
-                    pub(super) enum Out<_0> {
-                        _0(_0),
-                        Disabled,
-                    }
-                }
                 let output = {
-                    let mut futures = (rx.recv(),);
+                    let mut fut = rx.recv();
                     ::tokio::future::poll_fn(|cx| {
-                        let mut is_pending = false;
-                        for _ in 0..1 {
-                            match 0 {
-                                0 => {
-                                    let (fut, ..) = &mut futures;
-                                    let fut = unsafe { Pin::new_unchecked(fut) };
-                                    let out = match fut.poll(cx) {
-                                        Ready(out) => out,
-                                        Pending => {
-                                            is_pending = true;
-                                            continue;
-                                        }
-                                    };
-                                    #[allow(unused_variables)]
-                                    match &out {
-                                        Some(_msg) => {}
-                                        _ => continue,
-                                    }
-                                    return Ready(util::Out::_0(out));
+                        loop {
+                            let fut = unsafe { Pin::new_unchecked(&mut fut) };
+                            let out = match fut.poll(cx) {
+                                Ready(out) => out,
+                                Pending => {
+                                    break;
                                 }
-                                _ => unreachable!(
-                                    "reaching this means there probably is an off by one bug"
-                                ),
+                            };
+                            #[allow(unused_variables)]
+                            match &out {
+                                Some(_msg) => {}
+                                _ => break,
                             }
+                            return Ready(Out::_0(out));
                         }
-                        if is_pending {
-                            Pending
-                        } else {
-                            Ready(util::Out::Disabled)
-                        }
+                        Ready(Out::_0(None))
                     })
                     .await
                 };
                 match output {
-                    util::Out::_0(Some(_msg)) => {
+                    Out::_0(Some(_msg)) => {
                         entity.lock();
                     }
-                    util::Out::Disabled => unreachable!(),
-                    _ => unreachable!("failed to match bind"),
+                    Out::_0(None) => unreachable!(),
+                    _ => unreachable!(),
                 }
             }
             entity.lock();
