@@ -17,13 +17,13 @@ enum Out {
 
 #[allow(unused_must_use)]
 fn main() {
-    let mut rx = tokio::unbounded_channel::<Msg>();
+    let mut rx = llvm_error::unbounded_channel::<Msg>();
     let entity = Mutex::new(());
-    tokio::run(async move {
+    llvm_error::run(async move {
         {
             let output = {
                 let mut fut = rx.recv();
-                ::tokio::poll_fn(|cx| {
+                llvm_error::poll_fn(|cx| {
                     loop {
                         let fut = unsafe { Pin::new_unchecked(&mut fut) };
                         let out = match fut.poll(cx) {
