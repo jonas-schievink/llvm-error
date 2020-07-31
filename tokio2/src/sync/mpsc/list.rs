@@ -1,7 +1,7 @@
 //! A concurrent, lock-free, FIFO list.
 
 use crate::loom::sync::atomic::{AtomicPtr, AtomicUsize};
-use crate::sync::mpsc::block::{self, Block};
+use crate::sync::mpsc::block::Block;
 
 use std::ptr::NonNull;
 
@@ -48,37 +48,4 @@ pub(crate) fn channel<T>() -> (Tx<T>, Rx<T>) {
     };
 
     (tx, rx)
-}
-
-impl<T> Rx<T> {
-    /// Pops the next value off the queue
-    pub(crate) fn pop(&mut self, tx: &Tx<T>) -> Option<block::Read<T>> {
-        // Advance `head`, if needed
-        if !self.try_advancing_head() {
-            return None;
-        }
-
-        self.reclaim_blocks(tx);
-
-        unsafe {
-            let block = self.head.as_ref();
-
-            let ret = block.read(self.index);
-
-            if let Some(block::Read::Value(..)) = ret {
-                self.index = self.index.wrapping_add(1);
-            }
-
-            ret
-        }
-    }
-
-    /// Tries advancing the block pointer to the block referenced by `self.index`.
-    ///
-    /// Returns `true` if successful, `false` if there is no next block to load.
-    fn try_advancing_head(&mut self) -> bool {
-        false
-    }
-
-    fn reclaim_blocks(&mut self, _tx: &Tx<T>) {}
 }

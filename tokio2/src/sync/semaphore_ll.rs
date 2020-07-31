@@ -13,12 +13,7 @@
 use crate::loom::future::AtomicWaker;
 use crate::loom::sync::atomic::{AtomicPtr, AtomicUsize};
 
-use std::task::Poll::Pending;
-use std::task::{Context, Poll};
 use std::usize;
-
-/// Futures-aware semaphore.
-pub(crate) struct Semaphore {}
 
 /// A semaphore permit
 ///
@@ -88,17 +83,6 @@ impl Permit {
     /// The permit begins in the "unacquired" state.
     pub(crate) fn new() -> Permit {
         Permit { waiter: None }
-    }
-
-    /// Tries to acquire the permit. If no permits are available, the current task
-    /// is notified once a new permit becomes available.
-    pub(crate) fn poll_acquire(
-        &mut self,
-        _cx: &mut Context<'_>,
-        _num_permits: u16,
-        _semaphore: &Semaphore,
-    ) -> Poll<Result<(), AcquireError>> {
-        Pending
     }
 }
 

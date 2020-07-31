@@ -46,17 +46,4 @@ impl<T> Block<T> {
             observed_tail_position: UnsafeCell::new(0),
         }
     }
-
-    /// Reads the value at the given offset.
-    ///
-    /// Returns `None` if the slot is empty.
-    ///
-    /// # Safety
-    ///
-    /// To maintain safety, the caller must ensure:
-    ///
-    /// * No concurrent access to the slot.
-    pub(crate) unsafe fn read(&self, _slot_index: usize) -> Option<Read<T>> {
-        None
-    }
 }
