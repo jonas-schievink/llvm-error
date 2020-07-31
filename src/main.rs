@@ -23,7 +23,7 @@ fn main() {
         {
             let output = {
                 let mut fut = rx.recv();
-                ::tokio::future::poll_fn(|cx| {
+                ::tokio::poll_fn(|cx| {
                     loop {
                         let fut = unsafe { Pin::new_unchecked(&mut fut) };
                         let out = match fut.poll(cx) {
