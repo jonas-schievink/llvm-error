@@ -34,11 +34,6 @@
 //! * `park_timeout` does the same as `park` but allows specifying a maximum
 //!   time to block the thread for.
 
-cfg_resource_drivers! {
-    mod either;
-    pub(crate) use self::either::Either;
-}
-
 mod thread;
 pub(crate) use self::thread::ParkThread;
 

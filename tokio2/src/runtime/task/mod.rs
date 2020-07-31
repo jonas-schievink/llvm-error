@@ -21,11 +21,6 @@ use self::state::State;
 
 mod waker;
 
-cfg_rt_threaded! {
-    mod stack;
-    pub(crate) use self::stack::TransferStack;
-}
-
 use crate::util::linked_list;
 
 use std::future::Future;
@@ -97,26 +92,6 @@ where
     (Notified(task), join)
 }
 
-cfg_rt_util! {
-    /// Create a new `!Send` task with an associated join handle
-    pub(crate) unsafe fn joinable_local<T, S>(task: T) -> (Notified<S>, JoinHandle<T::Output>)
-    where
-        T: Future + 'static,
-        S: Schedule,
-    {
-        let raw = RawTask::new::<_, S>(task);
-
-        let task = Task {
-            raw,
-            _p: PhantomData,
-        };
-
-        let join = JoinHandle::new(raw);
-
-        (Notified(task), join)
-    }
-}
-
 impl<S: 'static> Task<S> {
     pub(crate) unsafe fn from_raw(ptr: NonNull<Header>) -> Task<S> {
         Task {
@@ -127,32 +102,6 @@ impl<S: 'static> Task<S> {
 
     pub(crate) fn header(&self) -> &Header {
         self.raw.header()
-    }
-}
-
-cfg_rt_threaded! {
-    impl<S: 'static> Notified<S> {
-        pub(crate) unsafe fn from_raw(ptr: NonNull<Header>) -> Notified<S> {
-            Notified(Task::from_raw(ptr))
-        }
-
-        pub(crate) fn header(&self) -> &Header {
-            self.0.header()
-        }
-    }
-
-    impl<S: 'static> Task<S> {
-        pub(crate) fn into_raw(self) -> NonNull<Header> {
-            let ret = self.header().into();
-            mem::forget(self);
-            ret
-        }
-    }
-
-    impl<S: 'static> Notified<S> {
-        pub(crate) fn into_raw(self) -> NonNull<Header> {
-            self.0.into_raw()
-        }
     }
 }
 

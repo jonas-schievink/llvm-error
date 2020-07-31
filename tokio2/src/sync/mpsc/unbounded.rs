@@ -1,6 +1,5 @@
 use crate::loom::sync::atomic::AtomicUsize;
 use crate::sync::mpsc::chan;
-use crate::sync::mpsc::error::{SendError, TryRecvError};
 
 use std::fmt;
 use std::task::{Context, Poll};
@@ -36,14 +35,6 @@ impl<T> fmt::Debug for UnboundedSender<T> {
 pub struct UnboundedReceiver<T> {
     /// The channel receiver
     chan: chan::Rx<T, Semaphore>,
-}
-
-impl<T> fmt::Debug for UnboundedReceiver<T> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("UnboundedReceiver")
-            .field("chan", &self.chan)
-            .finish()
-    }
 }
 
 /// Creates an unbounded mpsc channel for communicating between asynchronous
@@ -122,55 +113,10 @@ impl<T> UnboundedReceiver<T> {
 
         poll_fn(|cx| self.poll_recv(cx)).await
     }
-
-    /// Attempts to return a pending value on this receiver without blocking.
-    ///
-    /// This method will never block the caller in order to wait for data to
-    /// become available. Instead, this will always return immediately with
-    /// a possible option of pending data on the channel.
-    ///
-    /// This is useful for a flavor of "optimistic check" before deciding to
-    /// block on a receiver.
-    ///
-    /// Compared with recv, this function has two failure cases instead of
-    /// one (one for disconnection, one for an empty buffer).
-    pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
-        self.chan.try_recv()
-    }
-
-    /// Closes the receiving half of a channel, without dropping it.
-    ///
-    /// This prevents any further messages from being sent on the channel while
-    /// still enabling the receiver to drain messages that are buffered.
-    pub fn close(&mut self) {
-        self.chan.close();
-    }
-}
-
-#[cfg(feature = "stream")]
-impl<T> crate::stream::Stream for UnboundedReceiver<T> {
-    type Item = T;
-
-    fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
-        self.poll_recv(cx)
-    }
 }
 
 impl<T> UnboundedSender<T> {
     pub(crate) fn new(chan: chan::Tx<T, Semaphore>) -> UnboundedSender<T> {
         UnboundedSender { chan }
-    }
-
-    /// Attempts to send a message on this `UnboundedSender` without blocking.
-    ///
-    /// If the receive half of the channel is closed, either due to [`close`]
-    /// being called or the [`UnboundedReceiver`] having been dropped,
-    /// the function returns an error. The error includes the value passed to `send`.
-    ///
-    /// [`close`]: UnboundedReceiver::close
-    /// [`UnboundedReceiver`]: UnboundedReceiver
-    pub fn send(&self, message: T) -> Result<(), SendError<T>> {
-        self.chan.send_unbounded(message)?;
-        Ok(())
     }
 }

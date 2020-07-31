@@ -2,7 +2,7 @@ use crate::loom::cell::UnsafeCell;
 use crate::loom::future::AtomicWaker;
 use crate::loom::sync::atomic::AtomicUsize;
 use crate::loom::sync::Arc;
-use crate::sync::mpsc::error::{ClosedError, TryRecvError};
+use crate::sync::mpsc::error::ClosedError;
 use crate::sync::mpsc::{error, list};
 
 use std::fmt;
@@ -187,12 +187,6 @@ where
     }
 }
 
-impl<T> Tx<T, AtomicUsize> {
-    pub(crate) fn send_unbounded(&self, value: T) -> Result<(), (T, TrySendError)> {
-        self.inner.try_send(value, &mut ())
-    }
-}
-
 impl<T, S> Clone for Tx<T, S>
 where
     S: Semaphore,
@@ -236,20 +230,6 @@ where
 {
     fn new(chan: Arc<Chan<T, S>>) -> Rx<T, S> {
         Rx { inner: chan }
-    }
-
-    pub(crate) fn close(&mut self) {
-        self.inner.rx_fields.with_mut(|rx_fields_ptr| {
-            let rx_fields = unsafe { &mut *rx_fields_ptr };
-
-            if rx_fields.rx_closed {
-                return;
-            }
-
-            rx_fields.rx_closed = true;
-        });
-
-        self.inner.semaphore.close();
     }
 
     /// Receive the next value
@@ -300,81 +280,9 @@ where
             }
         })
     }
-
-    /// Receives the next value without blocking
-    pub(crate) fn try_recv(&mut self) -> Result<T, TryRecvError> {
-        use super::block::Read::*;
-        self.inner.rx_fields.with_mut(|rx_fields_ptr| {
-            let rx_fields = unsafe { &mut *rx_fields_ptr };
-            match rx_fields.list.pop(&self.inner.tx) {
-                Some(Value(value)) => {
-                    self.inner.semaphore.add_permit();
-                    Ok(value)
-                }
-                Some(Closed) => Err(TryRecvError::Closed),
-                None => Err(TryRecvError::Empty),
-            }
-        })
-    }
-}
-
-impl<T, S> Drop for Rx<T, S>
-where
-    S: Semaphore,
-{
-    fn drop(&mut self) {
-        use super::block::Read::Value;
-
-        self.close();
-
-        self.inner.rx_fields.with_mut(|rx_fields_ptr| {
-            let rx_fields = unsafe { &mut *rx_fields_ptr };
-
-            while let Some(Value(_)) = rx_fields.list.pop(&self.inner.tx) {
-                self.inner.semaphore.add_permit();
-            }
-        })
-    }
 }
 
 // ===== impl Chan =====
-
-impl<T, S> Chan<T, S>
-where
-    S: Semaphore,
-{
-    fn try_send(&self, value: T, permit: &mut S::Permit) -> Result<(), (T, TrySendError)> {
-        if let Err(e) = self.semaphore.try_acquire(permit) {
-            return Err((value, e));
-        }
-
-        // Push the value
-        self.tx.push(value);
-
-        // Notify the rx task
-        self.rx_waker.wake();
-
-        // Release the permit
-        self.semaphore.forget(permit);
-
-        Ok(())
-    }
-}
-
-impl<T, S> Drop for Chan<T, S> {
-    fn drop(&mut self) {
-        use super::block::Read::Value;
-
-        // Safety: the only owner of the rx fields is Chan, and eing
-        // inside its own Drop means we're the last ones to touch it.
-        self.rx_fields.with_mut(|rx_fields_ptr| {
-            let rx_fields = unsafe { &mut *rx_fields_ptr };
-
-            while let Some(Value(_)) = rx_fields.list.pop(&self.tx) {}
-            unsafe { rx_fields.list.free_blocks() };
-        });
-    }
-}
 
 use crate::sync::semaphore_ll::TryAcquireError;
 

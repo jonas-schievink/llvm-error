@@ -8,7 +8,7 @@ use crate::sync::mpsc::block::{self, Block};
 
 use std::fmt;
 use std::ptr::NonNull;
-use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release};
+use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed};
 
 /// List queue transmit handle
 pub(crate) struct Tx<T> {
@@ -54,119 +54,11 @@ pub(crate) fn channel<T>() -> (Tx<T>, Rx<T>) {
 }
 
 impl<T> Tx<T> {
-    /// Pushes a value into the list.
-    pub(crate) fn push(&self, value: T) {
-        // First, claim a slot for the value. `Acquire` is used here to
-        // synchronize with the `fetch_add` in `reclaim_blocks`.
-        let slot_index = self.tail_position.fetch_add(1, Acquire);
-
-        // Load the current block and write the value
-        let block = self.find_block(slot_index);
-
-        unsafe {
-            // Write the value to the block
-            block.as_ref().write(slot_index, value);
-        }
-    }
-
     /// Closes the send half of the list
     ///
     /// Similar process as pushing a value, but instead of writing the value &
     /// setting the ready flag, the TX_CLOSED flag is set on the block.
-    pub(crate) fn close(&self) {
-        // First, claim a slot for the value. This is the last slot that will be
-        // claimed.
-        let slot_index = self.tail_position.fetch_add(1, Acquire);
-
-        let block = self.find_block(slot_index);
-
-        unsafe { block.as_ref().tx_close() }
-    }
-
-    fn find_block(&self, slot_index: usize) -> NonNull<Block<T>> {
-        // The start index of the block that contains `index`.
-        let start_index = block::start_index(slot_index);
-
-        // The index offset into the block
-        let offset = block::offset(slot_index);
-
-        // Load the current head of the block
-        let mut block_ptr = self.block_tail.load(Acquire);
-
-        let block = unsafe { &*block_ptr };
-
-        // Calculate the distance between the tail ptr and the target block
-        let distance = block.distance(start_index);
-
-        // Decide if this call to `find_block` should attempt to update the
-        // `block_tail` pointer.
-        //
-        // Updating `block_tail` is not always performed in order to reduce
-        // contention.
-        //
-        // When set, as the routine walks the linked list, it attempts to update
-        // `block_tail`. If the update cannot be performed, `try_updating_tail`
-        // is unset.
-        let mut try_updating_tail = distance > offset;
-
-        // Walk the linked list of blocks until the block with `start_index` is
-        // found.
-        loop {
-            let block = unsafe { &(*block_ptr) };
-
-            if block.is_at_index(start_index) {
-                return unsafe { NonNull::new_unchecked(block_ptr) };
-            }
-
-            let next_block = block
-                .load_next(Acquire)
-                // There is no allocated next block, grow the linked list.
-                .unwrap_or_else(|| block.grow());
-
-            // If the block is **not** final, then the tail pointer cannot be
-            // advanced any more.
-            try_updating_tail &= block.is_final();
-
-            if try_updating_tail {
-                // Advancing `block_tail` must happen when walking the linked
-                // list. `block_tail` may not advance passed any blocks that are
-                // not "final". At the point a block is finalized, it is unknown
-                // if there are any prior blocks that are unfinalized, which
-                // makes it impossible to advance `block_tail`.
-                //
-                // While walking the linked list, `block_tail` can be advanced
-                // as long as finalized blocks are traversed.
-                //
-                // Release ordering is used to ensure that any subsequent reads
-                // are able to see the memory pointed to by `block_tail`.
-                //
-                // Acquire is not needed as any "actual" value is not accessed.
-                // At this point, the linked list is walked to acquire blocks.
-                let actual =
-                    self.block_tail
-                        .compare_and_swap(block_ptr, next_block.as_ptr(), Release);
-
-                if actual == block_ptr {
-                    // Synchronize with any senders
-                    let tail_position = self.tail_position.fetch_add(0, Release);
-
-                    unsafe {
-                        block.tx_release(tail_position);
-                    }
-                } else {
-                    // A concurrent sender is also working on advancing
-                    // `block_tail` and this thread is falling behind.
-                    //
-                    // Stop trying to advance the tail pointer
-                    try_updating_tail = false;
-                }
-            }
-
-            block_ptr = next_block.as_ptr();
-
-            thread::yield_now();
-        }
-    }
+    pub(crate) fn close(&self) {}
 
     pub(crate) unsafe fn reclaim_block(&self, mut block: NonNull<Block<T>>) {
         // The block has been removed from the linked list and ownership
@@ -246,30 +138,7 @@ impl<T> Rx<T> {
     ///
     /// Returns `true` if successful, `false` if there is no next block to load.
     fn try_advancing_head(&mut self) -> bool {
-        let block_index = block::start_index(self.index);
-
-        loop {
-            let next_block = {
-                let block = unsafe { self.head.as_ref() };
-
-                if block.is_at_index(block_index) {
-                    return true;
-                }
-
-                block.load_next(Acquire)
-            };
-
-            let next_block = match next_block {
-                Some(next_block) => next_block,
-                None => {
-                    return false;
-                }
-            };
-
-            self.head = next_block;
-
-            thread::yield_now();
-        }
+        false
     }
 
     fn reclaim_blocks(&mut self, tx: &Tx<T>) {
@@ -305,27 +174,6 @@ impl<T> Rx<T> {
             }
 
             thread::yield_now();
-        }
-    }
-
-    /// Effectively `Drop` all the blocks. Should only be called once, when
-    /// the list is dropping.
-    pub(super) unsafe fn free_blocks(&mut self) {
-        debug_assert_ne!(self.free_head, NonNull::dangling());
-
-        let mut cur = Some(self.free_head);
-
-        #[cfg(debug_assertions)]
-        {
-            // to trigger the debug assert above so as to catch that we
-            // don't call `free_blocks` more than once.
-            self.free_head = NonNull::dangling();
-            self.head = NonNull::dangling();
-        }
-
-        while let Some(block) = cur {
-            cur = block.as_ref().load_next(Relaxed);
-            drop(Box::from_raw(block.as_ptr()));
         }
     }
 }
