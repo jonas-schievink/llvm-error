@@ -173,17 +173,6 @@ impl<T: Link> fmt::Debug for LinkedList<T> {
     }
 }
 
-cfg_sync! {
-    impl<T: Link> LinkedList<T> {
-        pub(crate) fn last(&self) -> Option<&T::Target> {
-            let tail = self.tail.as_ref()?;
-            unsafe {
-                Some(&*tail.as_ptr())
-            }
-        }
-    }
-}
-
 // ===== impl Iter =====
 
 cfg_rt_threaded! {

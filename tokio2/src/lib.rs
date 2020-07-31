@@ -353,8 +353,6 @@ pub mod io;
 mod loom;
 mod park;
 
-pub mod prelude;
-
 pub mod runtime;
 
 pub(crate) mod coop;
