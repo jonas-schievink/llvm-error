@@ -14,30 +14,21 @@ use self::enter::enter;
 mod handle;
 pub use self::handle::Handle;
 
-mod io;
-
 mod spawner;
 use self::spawner::Spawner;
 
-mod time;
-
+use crate::park::ParkThread;
 use std::future::Future;
 
 pub struct Runtime {
-    kind: Kind,
+    scheduler: BasicScheduler<ParkThread>,
     handle: Handle,
-}
-
-enum Kind {
-    Basic(BasicScheduler<time::Driver>),
 }
 
 impl Runtime {
     pub fn block_on<F: Future>(&mut self, future: F) -> F::Output {
-        let kind = &mut self.kind;
+        let sched = &mut self.scheduler;
 
-        self.handle.enter(|| match kind {
-            Kind::Basic(exec) => exec.block_on(future),
-        })
+        self.handle.enter(|| sched.block_on(future))
     }
 }

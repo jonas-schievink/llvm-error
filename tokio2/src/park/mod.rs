@@ -37,7 +37,6 @@
 mod thread;
 pub(crate) use self::thread::ParkThread;
 
-use std::sync::Arc;
 use std::time::Duration;
 
 /// Block the current thread.
@@ -94,16 +93,4 @@ pub(crate) trait Unpark: Sync + Send + 'static {
     /// an implementation detail. Refer to the documentation for the specific
     /// `Unpark` implementation
     fn unpark(&self);
-}
-
-impl Unpark for Box<dyn Unpark> {
-    fn unpark(&self) {
-        (**self).unpark()
-    }
-}
-
-impl Unpark for Arc<dyn Unpark> {
-    fn unpark(&self) {
-        (**self).unpark()
-    }
 }

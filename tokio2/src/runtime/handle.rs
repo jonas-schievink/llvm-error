@@ -1,4 +1,4 @@
-use crate::runtime::{context, time, Spawner};
+use crate::runtime::{context, Spawner};
 use crate::task::JoinHandle;
 use std::future::Future;
 
@@ -7,7 +7,7 @@ pub struct Handle {
     pub(super) spawner: Spawner,
 
     /// Source of `Instant::now()`
-    pub(super) clock: time::Clock,
+    pub(super) clock: (),
 }
 
 impl Handle {
