@@ -11,11 +11,7 @@ cfg_rt_threaded! {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Spawner {
-    Shell,
-    #[cfg(feature = "rt-core")]
     Basic(basic_scheduler::Spawner),
-    #[cfg(feature = "rt-threaded")]
-    ThreadPool(thread_pool::Spawner),
 }
 
 cfg_rt_core! {
@@ -26,11 +22,7 @@ cfg_rt_core! {
             F::Output: Send + 'static,
         {
             match self {
-                Spawner::Shell => panic!("spawning not enabled for runtime"),
-                #[cfg(feature = "rt-core")]
                 Spawner::Basic(spawner) => spawner.spawn(future),
-                #[cfg(feature = "rt-threaded")]
-                Spawner::ThreadPool(spawner) => spawner.spawn(future),
             }
         }
     }

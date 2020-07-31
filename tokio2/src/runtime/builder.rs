@@ -1,5 +1,4 @@
 use crate::runtime::handle::Handle;
-use crate::runtime::shell::Shell;
 use crate::runtime::{blocking, io, time, Callback, Runtime, Spawner};
 
 use std::fmt;
@@ -71,10 +70,7 @@ pub struct Builder {
 #[derive(Debug, Clone, Copy)]
 enum Kind {
     Shell,
-    #[cfg(feature = "rt-core")]
     Basic,
-    #[cfg(feature = "rt-threaded")]
-    ThreadPool,
 }
 
 impl Builder {
@@ -311,39 +307,9 @@ impl Builder {
     /// ```
     pub fn build(&mut self) -> io::Result<Runtime> {
         match self.kind {
-            Kind::Shell => self.build_shell_runtime(),
-            #[cfg(feature = "rt-core")]
+            Kind::Shell => panic!(),
             Kind::Basic => self.build_basic_runtime(),
-            #[cfg(feature = "rt-threaded")]
-            Kind::ThreadPool => self.build_threaded_runtime(),
         }
-    }
-
-    fn build_shell_runtime(&mut self) -> io::Result<Runtime> {
-        use crate::runtime::Kind;
-
-        let clock = time::create_clock();
-
-        // Create I/O driver
-        let (io_driver, io_handle) = io::create_driver(self.enable_io)?;
-        let (driver, time_handle) = time::create_driver(self.enable_time, io_driver, clock.clone());
-
-        let spawner = Spawner::Shell;
-
-        let blocking_pool = blocking::create_blocking_pool(self, self.max_threads);
-        let blocking_spawner = blocking_pool.spawner().clone();
-
-        Ok(Runtime {
-            kind: Kind::Shell(Shell::new(driver)),
-            handle: Handle {
-                spawner,
-                io_handle,
-                time_handle,
-                clock,
-                blocking_spawner,
-            },
-            blocking_pool,
-        })
     }
 }
 
