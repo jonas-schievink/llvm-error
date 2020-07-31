@@ -1,28 +1,7 @@
-mod core;
-use self::core::Cell;
-pub(crate) use self::core::Header;
-
-mod error;
-#[allow(unreachable_pub)] // https://github.com/rust-lang/rust/issues/57411
-pub use self::error::JoinError;
-
-mod harness;
-use self::harness::Harness;
-
-mod join;
-#[allow(unreachable_pub)] // https://github.com/rust-lang/rust/issues/57411
-pub use self::join::JoinHandle;
-
-mod raw;
-use self::raw::RawTask;
-
-mod state;
-use self::state::State;
-
-mod waker;
-
 use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 /// An owned handle to the task, tracked by ref count
 pub(crate) struct Task<S: 'static> {
@@ -74,4 +53,39 @@ where
     let join = JoinHandle::new(raw);
 
     (Notified(task), join)
+}
+/// Task failed to execute to completion.
+pub struct JoinError {}
+
+pub struct JoinHandle<T> {
+    _p: PhantomData<T>,
+}
+
+impl<T> JoinHandle<T> {
+    fn new(_: RawTask) -> JoinHandle<T> {
+        JoinHandle { _p: PhantomData }
+    }
+}
+
+impl<T> Unpin for JoinHandle<T> {}
+
+impl<T> Future for JoinHandle<T> {
+    type Output = Result<T>;
+
+    fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
+        Poll::Pending
+    }
+}
+
+/// Raw task handle
+pub(super) struct RawTask {}
+
+impl RawTask {
+    pub(super) fn new<T, S>(_: T) -> RawTask
+    where
+        T: Future,
+        S: Schedule,
+    {
+        RawTask {}
+    }
 }
