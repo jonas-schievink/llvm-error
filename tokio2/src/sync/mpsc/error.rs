@@ -18,15 +18,3 @@ pub enum TrySendError<T> {
     /// dropped.
     Closed(T),
 }
-
-// ===== ClosedError =====
-
-/// Error returned by [`Sender::poll_ready`](super::Sender::poll_ready).
-#[derive(Debug)]
-pub struct ClosedError(());
-
-impl ClosedError {
-    pub(crate) fn new() -> ClosedError {
-        ClosedError(())
-    }
-}

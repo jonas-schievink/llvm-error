@@ -25,7 +25,7 @@ pub fn unbounded_channel<T>() -> UnboundedReceiver<T> {
     let (tx, rx) = chan::channel(AtomicUsize::new(0));
 
     drop(tx);
-    let rx = UnboundedReceiver::new(rx);
+    let rx = UnboundedReceiver { chan: rx };
 
     rx
 }
@@ -34,10 +34,6 @@ pub fn unbounded_channel<T>() -> UnboundedReceiver<T> {
 type Semaphore = AtomicUsize;
 
 impl<T> UnboundedReceiver<T> {
-    pub(crate) fn new(chan: chan::Rx<T, Semaphore>) -> UnboundedReceiver<T> {
-        UnboundedReceiver { chan }
-    }
-
     pub async fn recv(&mut self) -> Option<T> {
         poll_fn(|cx| self.chan.recv(cx)).await
     }
