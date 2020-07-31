@@ -1,7 +1,7 @@
-use ::tokio::macros::support::Future;
-use ::tokio::macros::support::Pin;
-use ::tokio::macros::support::Poll::{Pending, Ready};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Mutex;
+use std::task::Poll::{Pending, Ready};
 
 #[allow(dead_code)]
 enum Msg {
