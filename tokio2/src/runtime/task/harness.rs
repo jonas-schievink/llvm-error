@@ -268,23 +268,6 @@ where
         }
     }
 
-    /// Forcibly shutdown the task
-    ///
-    /// Attempt to transition to `Running` in order to forcibly shutdown the
-    /// task. If the task is currently running or in a state of completion, then
-    /// there is nothing further to do. When the task completes running, it will
-    /// notice the `CANCELLED` bit and finalize the task.
-    pub(super) fn shutdown(self) {
-        if !self.header().state.transition_to_shutdown() {
-            // The task is concurrently running. No further work needed.
-            return;
-        }
-
-        // By transitioning the lifcycle to `Running`, we have permission to
-        // drop the future.
-        self.cancel_task();
-    }
-
     // ====== internal ======
 
     fn cancel_task(self) {

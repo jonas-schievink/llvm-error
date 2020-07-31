@@ -21,9 +21,6 @@ pub(super) struct Vtable {
 
     /// The join handle has been dropped
     pub(super) drop_join_handle_slow: unsafe fn(NonNull<Header>),
-
-    /// Scheduler is being shutdown
-    pub(super) shutdown: unsafe fn(NonNull<Header>),
 }
 
 /// Get the vtable for the requested `T` and `S` generics.
@@ -33,7 +30,6 @@ pub(super) fn vtable<T: Future, S: Schedule>() -> &'static Vtable {
         dealloc: dealloc::<T, S>,
         try_read_output: try_read_output::<T, S>,
         drop_join_handle_slow: drop_join_handle_slow::<T, S>,
-        shutdown: shutdown::<T, S>,
     }
 }
 
@@ -84,11 +80,6 @@ impl RawTask {
         let vtable = self.header().vtable;
         unsafe { (vtable.drop_join_handle_slow)(self.ptr) }
     }
-
-    pub(super) fn shutdown(self) {
-        let vtable = self.header().vtable;
-        unsafe { (vtable.shutdown)(self.ptr) }
-    }
 }
 
 impl Clone for RawTask {
@@ -123,9 +114,4 @@ unsafe fn try_read_output<T: Future, S: Schedule>(
 unsafe fn drop_join_handle_slow<T: Future, S: Schedule>(ptr: NonNull<Header>) {
     let harness = Harness::<T, S>::from_raw(ptr);
     harness.drop_join_handle_slow()
-}
-
-unsafe fn shutdown<T: Future, S: Schedule>(ptr: NonNull<Header>) {
-    let harness = Harness::<T, S>::from_raw(ptr);
-    harness.shutdown()
 }

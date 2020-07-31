@@ -37,10 +37,6 @@
 mod thread;
 pub(crate) use self::thread::ParkThread;
 
-cfg_block_on! {
-    pub(crate) use self::thread::{CachedParkThread, ParkError};
-}
-
 use std::sync::Arc;
 use std::time::Duration;
 

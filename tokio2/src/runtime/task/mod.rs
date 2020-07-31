@@ -105,23 +105,11 @@ impl<S: 'static> Task<S> {
     }
 }
 
-impl<S: Schedule> Task<S> {
-    /// Pre-emptively cancel the task as part of the shutdown process.
-    pub(crate) fn shutdown(&self) {
-        self.raw.shutdown();
-    }
-}
-
 impl<S: Schedule> Notified<S> {
     /// Run the task
     pub(crate) fn run(self) {
         self.0.raw.poll();
         mem::forget(self);
-    }
-
-    /// Pre-emptively cancel the task as part of the shutdown process.
-    pub(crate) fn shutdown(self) {
-        self.0.shutdown();
     }
 }
 

@@ -7,10 +7,6 @@ thread_local! {
     static CONTEXT: RefCell<Option<Handle>> = RefCell::new(None)
 }
 
-pub(crate) fn current() -> Option<Handle> {
-    CONTEXT.with(|ctx| ctx.borrow().clone())
-}
-
 /// Set this [`ThreadContext`] as the current active [`ThreadContext`].
 ///
 /// [`ThreadContext`]: struct@ThreadContext

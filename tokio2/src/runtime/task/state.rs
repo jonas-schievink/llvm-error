@@ -177,35 +177,6 @@ impl State {
         prev.will_need_queueing()
     }
 
-    /// Set the `CANCELLED` bit and attempt to transition to `Running`.
-    ///
-    /// Returns `true` if the transition to `Running` succeeded.
-    pub(super) fn transition_to_shutdown(&self) -> bool {
-        let mut prev = Snapshot(0);
-
-        let _ = self.fetch_update(|mut snapshot| {
-            prev = snapshot;
-
-            if snapshot.is_idle() {
-                snapshot.set_running();
-
-                if snapshot.is_notified() {
-                    // If the task is idle and notified, this indicates the task is
-                    // in the run queue and is considered owned by the scheduler.
-                    // The shutdown operation claims ownership of the task, which
-                    // means we need to assign an additional ref-count to the task
-                    // in the queue.
-                    snapshot.ref_inc();
-                }
-            }
-
-            snapshot.set_cancelled();
-            Some(snapshot)
-        });
-
-        prev.is_idle()
-    }
-
     /// Optimistically tries to swap the state assuming the join handle is
     /// __immediately__ dropped on spawn
     pub(super) fn drop_join_handle_fast(&self) -> Result<(), ()> {
@@ -370,10 +341,6 @@ impl Snapshot {
 
     pub(super) fn is_cancelled(self) -> bool {
         self.0 & CANCELLED == CANCELLED
-    }
-
-    fn set_cancelled(&mut self) {
-        self.0 |= CANCELLED;
     }
 
     fn set_complete(&mut self) {

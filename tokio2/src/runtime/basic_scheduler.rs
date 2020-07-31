@@ -1,4 +1,4 @@
-use crate::park::{Park, Unpark};
+use crate::park::Park;
 use crate::runtime;
 use crate::runtime::task::{self, JoinHandle, Schedule, Task};
 use crate::util::linked_list::LinkedList;
@@ -6,9 +6,8 @@ use crate::util::{waker_ref, Wake};
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::fmt;
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::Poll::Ready;
 use std::time::Duration;
 
@@ -51,13 +50,7 @@ struct Tasks {
 }
 
 /// Scheduler state shared between threads.
-struct Shared {
-    /// Remote run queue
-    queue: Mutex<VecDeque<task::Notified<Arc<Shared>>>>,
-
-    /// Unpark the blocked thread
-    unpark: Box<dyn Unpark>,
-}
+struct Shared {}
 
 /// Thread-local context
 struct Context {
@@ -85,18 +78,13 @@ where
     P: Park,
 {
     pub(crate) fn new(park: P) -> BasicScheduler<P> {
-        let unpark = Box::new(park.unpark());
-
         BasicScheduler {
             tasks: Some(Tasks {
                 owned: LinkedList::new(),
                 queue: VecDeque::with_capacity(INITIAL_CAPACITY),
             }),
             spawner: Spawner {
-                shared: Arc::new(Shared {
-                    queue: Mutex::new(VecDeque::with_capacity(INITIAL_CAPACITY)),
-                    unpark: unpark as Box<dyn Unpark>,
-                }),
+                shared: Arc::new(Shared {}),
             },
             tick: 0,
             park,
@@ -180,13 +168,6 @@ where
         scheduler: &'a mut BasicScheduler<P>,
     }
 
-    impl<P: Park> Drop for Guard<'_, P> {
-        fn drop(&mut self) {
-            let Context { tasks, .. } = self.context.take().expect("context missing");
-            self.scheduler.tasks = Some(tasks.into_inner());
-        }
-    }
-
     // Remove `tasks` from `self` and place it in a `Context`.
     let tasks = scheduler.tasks.take().expect("invalid state");
 
@@ -204,44 +185,6 @@ where
     CURRENT.set(context, || f(scheduler, context))
 }
 
-impl<P> Drop for BasicScheduler<P>
-where
-    P: Park,
-{
-    fn drop(&mut self) {
-        enter(self, |scheduler, context| {
-            // Loop required here to ensure borrow is dropped between iterations
-            #[allow(clippy::while_let_loop)]
-            loop {
-                let task = match context.tasks.borrow_mut().owned.pop_back() {
-                    Some(task) => task,
-                    None => break,
-                };
-
-                task.shutdown();
-            }
-
-            // Drain local queue
-            for task in context.tasks.borrow_mut().queue.drain(..) {
-                task.shutdown();
-            }
-
-            // Drain remote queue
-            for task in scheduler.spawner.shared.queue.lock().unwrap().drain(..) {
-                task.shutdown();
-            }
-
-            assert!(context.tasks.borrow().owned.is_empty());
-        });
-    }
-}
-
-impl<P: Park> fmt::Debug for BasicScheduler<P> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("BasicScheduler").finish()
-    }
-}
-
 // ===== impl Spawner =====
 
 impl Spawner {
@@ -257,13 +200,7 @@ impl Spawner {
     }
 
     fn pop(&self) -> Option<task::Notified<Arc<Shared>>> {
-        self.shared.queue.lock().unwrap().pop_front()
-    }
-}
-
-impl fmt::Debug for Spawner {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("Spawner").finish()
+        None
     }
 }
 
@@ -278,40 +215,16 @@ impl Schedule for Arc<Shared> {
         })
     }
 
-    fn release(&self, task: &Task<Self>) -> Option<Task<Self>> {
-        use std::ptr::NonNull;
-
-        CURRENT.with(|maybe_cx| {
-            let cx = maybe_cx.expect("scheduler context missing");
-
-            // safety: the task is inserted in the list in `bind`.
-            unsafe {
-                let ptr = NonNull::from(task.header());
-                cx.tasks.borrow_mut().owned.remove(ptr)
-            }
-        })
+    fn release(&self, _: &Task<Self>) -> Option<Task<Self>> {
+        None
     }
 
-    fn schedule(&self, task: task::Notified<Self>) {
-        CURRENT.with(|maybe_cx| match maybe_cx {
-            Some(cx) if Arc::ptr_eq(self, &cx.shared) => {
-                cx.tasks.borrow_mut().queue.push_back(task);
-            }
-            _ => {
-                self.queue.lock().unwrap().push_back(task);
-                self.unpark.unpark();
-            }
-        });
-    }
+    fn schedule(&self, _: task::Notified<Self>) {}
 }
 
 impl Wake for Shared {
-    fn wake(self: Arc<Self>) {
-        Wake::wake_by_ref(&self)
-    }
+    fn wake(self: Arc<Self>) {}
 
     /// Wake by reference
-    fn wake_by_ref(arc_self: &Arc<Self>) {
-        arc_self.unpark.unpark();
-    }
+    fn wake_by_ref(_: &Arc<Self>) {}
 }

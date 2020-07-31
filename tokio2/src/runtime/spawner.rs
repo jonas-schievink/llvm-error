@@ -5,11 +5,7 @@ cfg_rt_core! {
     use std::future::Future;
 }
 
-cfg_rt_threaded! {
-    use crate::runtime::thread_pool;
-}
-
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) enum Spawner {
     Basic(basic_scheduler::Spawner),
 }
