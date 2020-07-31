@@ -1,6 +1,14 @@
+use std::task::Waker;
+
 pub mod mpsc;
 
-pub(crate) mod semaphore_ll;
+struct AtomicWaker {}
 
-mod task;
-pub(crate) use task::AtomicWaker;
+impl AtomicWaker {
+    /// Create an `AtomicWaker`
+    fn new() -> AtomicWaker {
+        AtomicWaker {}
+    }
+
+    fn register_by_ref(&self, _waker: &Waker) {}
+}

@@ -1,9 +1,9 @@
 use crate::loom::cell::UnsafeCell;
-use crate::loom::future::AtomicWaker;
 use crate::loom::sync::atomic::AtomicUsize;
 use crate::loom::sync::Arc;
 use crate::sync::mpsc::error::ClosedError;
-use crate::sync::mpsc::{error, list};
+use crate::sync::mpsc::list;
+use crate::sync::AtomicWaker;
 
 use std::task::Poll::{Pending, Ready};
 use std::task::{Context, Poll};
@@ -25,24 +25,6 @@ pub(crate) struct Rx<T, S: Semaphore> {
 pub(crate) enum TrySendError {
     Closed,
     Full,
-}
-
-impl<T> From<(T, TrySendError)> for error::SendError<T> {
-    fn from(src: (T, TrySendError)) -> error::SendError<T> {
-        match src.1 {
-            TrySendError::Closed => error::SendError(src.0),
-            TrySendError::Full => unreachable!(),
-        }
-    }
-}
-
-impl<T> From<(T, TrySendError)> for error::TrySendError<T> {
-    fn from(src: (T, TrySendError)) -> error::TrySendError<T> {
-        match src.1 {
-            TrySendError::Closed => error::TrySendError::Closed(src.0),
-            TrySendError::Full => error::TrySendError::Full(src.0),
-        }
-    }
 }
 
 pub(crate) trait Semaphore {

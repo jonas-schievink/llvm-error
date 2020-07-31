@@ -14,11 +14,6 @@ pub(crate) mod cell {
     pub(crate) use super::unsafe_cell::UnsafeCell;
 }
 
-#[cfg(any(feature = "sync", feature = "io-driver"))]
-pub(crate) mod future {
-    pub(crate) use crate::sync::AtomicWaker;
-}
-
 pub(crate) mod rand {
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hash, Hasher};
