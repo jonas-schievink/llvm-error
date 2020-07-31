@@ -233,7 +233,7 @@ impl Semaphore for (crate::sync::semaphore_ll::Semaphore, usize) {
     fn add_permit(&self) {}
 
     fn is_idle(&self) -> bool {
-        self.0.available_permits() == self.1
+        false
     }
 
     fn poll_acquire(

@@ -42,11 +42,6 @@ impl AtomicWaker {
     /// tasks to be woken. One of the callers will win and have its task set,
     /// but there is no guarantee as to which caller will succeed.
     pub(crate) fn register_by_ref(&self, _waker: &Waker) {}
-
-    /// Wakes the task that last called `register`.
-    ///
-    /// If `register` has not been called yet, then this does nothing.
-    pub(crate) fn wake(&self) {}
 }
 
 impl Default for AtomicWaker {
