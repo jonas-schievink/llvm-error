@@ -8,4 +8,4 @@ edition = "2018"
 default-run = "rust-template"
 
 [dependencies]
-tokio = { version = "=0.2.21", features = ["rt-core", "macros", "sync"], default-features = false }
+tokio = { version = "=0.2.21", features = ["rt-core", "sync"], default-features = false }
