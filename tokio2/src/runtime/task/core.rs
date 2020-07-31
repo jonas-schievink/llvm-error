@@ -12,14 +12,12 @@
 use crate::loom::cell::UnsafeCell;
 use crate::runtime::task::raw::{self, Vtable};
 use crate::runtime::task::state::State;
-use crate::runtime::task::waker::waker_ref;
-use crate::runtime::task::{Notified, Schedule, Task};
+use crate::runtime::task::Schedule;
 use crate::util::linked_list;
 
 use std::future::Future;
-use std::pin::Pin;
 use std::ptr::NonNull;
-use std::task::{Context, Poll, Waker};
+use std::task::Waker;
 
 /// The task cell. Contains the components of the task.
 ///
@@ -78,7 +76,6 @@ pub(super) struct Trailer {
 /// Either the future or the output.
 pub(super) enum Stage<T: Future> {
     Running(T),
-    Finished(super::Result<T::Output>),
     Consumed,
 }
 
@@ -106,81 +103,6 @@ impl<T: Future, S: Schedule> Cell<T, S> {
 }
 
 impl<T: Future, S: Schedule> Core<T, S> {
-    /// Bind a scheduler to the task.
-    ///
-    /// This only happens on the first poll and must be preceeded by a call to
-    /// `is_bound` to determine if binding is appropriate or not.
-    ///
-    /// # Safety
-    ///
-    /// Binding must not be done concurrently since it will mutate the task
-    /// core through a shared reference.
-    pub(super) fn bind_scheduler(&self, task: Task<S>) {
-        // This function may be called concurrently, but the __first__ time it
-        // is called, the caller has unique access to this field. All subsequent
-        // concurrent calls will be via the `Waker`, which will "happens after"
-        // the first poll.
-        //
-        // In other words, it is always safe to read the field and it is safe to
-        // write to the field when it is `None`.
-        debug_assert!(!self.is_bound());
-
-        // Bind the task to the scheduler
-        let scheduler = S::bind(task);
-
-        // Safety: As `scheduler` is not set, this is the first poll
-        self.scheduler.with_mut(|ptr| unsafe {
-            *ptr = Some(scheduler);
-        });
-    }
-
-    /// Returns true if the task is bound to a scheduler.
-    pub(super) fn is_bound(&self) -> bool {
-        // Safety: never called concurrently w/ a mutation.
-        self.scheduler.with(|ptr| unsafe { (*ptr).is_some() })
-    }
-
-    /// Poll the future
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure it is safe to mutate the `state` field. This
-    /// requires ensuring mutal exclusion between any concurrent thread that
-    /// might modify the future or output field.
-    ///
-    /// The mutual exclusion is implemented by `Harness` and the `Lifecycle`
-    /// component of the task state.
-    ///
-    /// `self` must also be pinned. This is handled by storing the task on the
-    /// heap.
-    pub(super) fn poll(&self, header: &Header) -> Poll<T::Output> {
-        let res = {
-            self.stage.with_mut(|ptr| {
-                // Safety: The caller ensures mutual exclusion to the field.
-                let future = match unsafe { &mut *ptr } {
-                    Stage::Running(future) => future,
-                    _ => unreachable!("unexpected stage"),
-                };
-
-                // Safety: The caller ensures the future is pinned.
-                let future = unsafe { Pin::new_unchecked(future) };
-
-                // The waker passed into the `poll` function does not require a ref
-                // count increment.
-                let waker_ref = waker_ref::<T, S>(header);
-                let mut cx = Context::from_waker(&*waker_ref);
-
-                future.poll(&mut cx)
-            })
-        };
-
-        if res.is_ready() {
-            self.drop_future_or_output();
-        }
-
-        res
-    }
-
     /// Drop the future
     ///
     /// # Safety
@@ -190,18 +112,6 @@ impl<T: Future, S: Schedule> Core<T, S> {
         self.stage.with_mut(|ptr| {
             // Safety: The caller ensures mutal exclusion to the field.
             unsafe { *ptr = Stage::Consumed };
-        });
-    }
-
-    /// Store the task output
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure it is safe to mutate the `stage` field.
-    pub(super) fn store_output(&self, output: super::Result<T::Output>) {
-        self.stage.with_mut(|ptr| {
-            // Safety: the caller ensures mutual exclusion to the field.
-            unsafe { *ptr = Stage::Finished(output) };
         });
     }
 
@@ -216,74 +126,8 @@ impl<T: Future, S: Schedule> Core<T, S> {
         self.stage.with_mut(|ptr| {
             // Safety:: the caller ensures mutal exclusion to the field.
             match mem::replace(unsafe { &mut *ptr }, Stage::Consumed) {
-                Stage::Finished(output) => output,
                 _ => panic!("unexpected task state"),
             }
         })
     }
-
-    /// Schedule the future for execution
-    pub(super) fn schedule(&self, task: Notified<S>) {
-        self.scheduler.with(|ptr| {
-            // Safety: Can only be called after initial `poll`, which is the
-            // only time the field is mutated.
-            match unsafe { &*ptr } {
-                Some(scheduler) => scheduler.schedule(task),
-                None => panic!("no scheduler set"),
-            }
-        });
-    }
-
-    /// Schedule the future for execution in the near future, yielding the
-    /// thread to other tasks.
-    pub(super) fn yield_now(&self, task: Notified<S>) {
-        self.scheduler.with(|ptr| {
-            // Safety: Can only be called after initial `poll`, which is the
-            // only time the field is mutated.
-            match unsafe { &*ptr } {
-                Some(scheduler) => scheduler.yield_now(task),
-                None => panic!("no scheduler set"),
-            }
-        });
-    }
-
-    /// Release the task
-    ///
-    /// If the `Scheduler` implementation is able to, it returns the `Task`
-    /// handle immediately. The caller of this function will batch a ref-dec
-    /// with a state change.
-    pub(super) fn release(&self, task: Task<S>) -> Option<Task<S>> {
-        use std::mem::ManuallyDrop;
-
-        let task = ManuallyDrop::new(task);
-
-        self.scheduler.with(|ptr| {
-            // Safety: Can only be called after initial `poll`, which is the
-            // only time the field is mutated.
-            match unsafe { &*ptr } {
-                Some(scheduler) => scheduler.release(&*task),
-                // Task was never polled
-                None => None,
-            }
-        })
-    }
-}
-
-cfg_rt_threaded! {
-    impl Header {
-        pub(crate) fn shutdown(&self) {
-            use crate::runtime::task::RawTask;
-
-            let task = unsafe { RawTask::from_raw(self.into()) };
-            task.shutdown();
-        }
-    }
-}
-
-#[test]
-#[cfg(not(loom))]
-fn header_lte_cache_line() {
-    use std::mem::size_of;
-
-    assert!(size_of::<Header>() <= 8 * size_of::<*const ()>());
 }

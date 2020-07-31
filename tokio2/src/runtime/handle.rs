@@ -5,9 +5,6 @@ use std::future::Future;
 #[derive(Clone)]
 pub struct Handle {
     pub(super) spawner: Spawner,
-
-    /// Source of `Instant::now()`
-    pub(super) clock: (),
 }
 
 impl Handle {

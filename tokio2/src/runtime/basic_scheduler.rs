@@ -1,52 +1,20 @@
-use crate::park::Park;
 use crate::runtime;
 use crate::runtime::task::{self, JoinHandle, Schedule, Task};
-use crate::util::linked_list::LinkedList;
 use crate::util::{waker_ref, Wake};
 
-use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Arc;
 use std::task::Poll::Ready;
-use std::time::Duration;
 
 /// Executes tasks on the current thread
-pub(crate) struct BasicScheduler<P>
-where
-    P: Park,
-{
-    /// Scheduler run queue
-    ///
-    /// When the scheduler is executed, the queue is removed from `self` and
-    /// moved into `Context`.
-    ///
-    /// This indirection is to allow `BasicScheduler` to be `Send`.
-    tasks: Option<Tasks>,
-
+pub(crate) struct BasicScheduler {
     /// Sendable task spawner
     spawner: Spawner,
-
-    /// Current tick
-    tick: u8,
-
-    /// Thread park handle
-    park: P,
 }
 
 #[derive(Clone)]
 pub(crate) struct Spawner {
     shared: Arc<Shared>,
-}
-
-struct Tasks {
-    /// Collection of all active tasks spawned onto this executor.
-    owned: LinkedList<Task<Arc<Shared>>>,
-
-    /// Local run queue.
-    ///
-    /// Tasks notified from the current thread are pushed into this queue.
-    queue: VecDeque<task::Notified<Arc<Shared>>>,
 }
 
 /// Scheduler state shared between threads.
@@ -56,38 +24,17 @@ struct Shared {}
 struct Context {
     /// Shared scheduler state
     shared: Arc<Shared>,
-
-    /// Local queue
-    tasks: RefCell<Tasks>,
 }
-
-/// Initial queue capacity
-const INITIAL_CAPACITY: usize = 64;
-
-/// Max number of tasks to poll per tick.
-const MAX_TASKS_PER_TICK: usize = 61;
-
-/// How often ot check the remote queue first
-const REMOTE_FIRST_INTERVAL: u8 = 31;
 
 // Tracks the current BasicScheduler
 scoped_thread_local!(static CURRENT: Context);
 
-impl<P> BasicScheduler<P>
-where
-    P: Park,
-{
-    pub(crate) fn new(park: P) -> BasicScheduler<P> {
+impl BasicScheduler {
+    pub(crate) fn new() -> BasicScheduler {
         BasicScheduler {
-            tasks: Some(Tasks {
-                owned: LinkedList::new(),
-                queue: VecDeque::with_capacity(INITIAL_CAPACITY),
-            }),
             spawner: Spawner {
                 shared: Arc::new(Shared {}),
             },
-            tick: 0,
-            park,
         }
     }
 
@@ -99,56 +46,17 @@ where
     where
         F: Future,
     {
-        enter(self, |scheduler, context| {
+        enter(self, |scheduler, _| {
             let _enter = runtime::enter(false);
             let waker = waker_ref(&scheduler.spawner.shared);
             let mut cx = std::task::Context::from_waker(&waker);
 
             pin!(future);
 
-            'outer: loop {
-                if let Ready(v) = crate::coop::budget(|| future.as_mut().poll(&mut cx)) {
+            loop {
+                if let Ready(v) = future.as_mut().poll(&mut cx) {
                     return v;
                 }
-
-                for _ in 0..MAX_TASKS_PER_TICK {
-                    // Get and increment the current tick
-                    let tick = scheduler.tick;
-                    scheduler.tick = scheduler.tick.wrapping_add(1);
-
-                    let next = if tick % REMOTE_FIRST_INTERVAL == 0 {
-                        scheduler
-                            .spawner
-                            .pop()
-                            .or_else(|| context.tasks.borrow_mut().queue.pop_front())
-                    } else {
-                        context
-                            .tasks
-                            .borrow_mut()
-                            .queue
-                            .pop_front()
-                            .or_else(|| scheduler.spawner.pop())
-                    };
-
-                    match next {
-                        Some(task) => crate::coop::budget(|| task.run()),
-                        None => {
-                            // Park until the thread is signaled
-                            scheduler.park.park().ok().expect("failed to park");
-
-                            // Try polling the `block_on` future next
-                            continue 'outer;
-                        }
-                    }
-                }
-
-                // Yield to the park, this drives the timer and pulls any pending
-                // I/O events.
-                scheduler
-                    .park
-                    .park_timeout(Duration::from_millis(0))
-                    .ok()
-                    .expect("failed to park");
             }
         })
     }
@@ -156,25 +64,20 @@ where
 
 /// Enter the scheduler context. This sets the queue and other necessary
 /// scheduler state in the thread-local
-fn enter<F, R, P>(scheduler: &mut BasicScheduler<P>, f: F) -> R
+fn enter<F, R>(scheduler: &mut BasicScheduler, f: F) -> R
 where
-    F: FnOnce(&mut BasicScheduler<P>, &Context) -> R,
-    P: Park,
+    F: FnOnce(&mut BasicScheduler, &Context) -> R,
 {
     // Ensures the run queue is placed back in the `BasicScheduler` instance
     // once `block_on` returns.`
-    struct Guard<'a, P: Park> {
+    struct Guard<'a> {
         context: Option<Context>,
-        scheduler: &'a mut BasicScheduler<P>,
+        scheduler: &'a mut BasicScheduler,
     }
-
-    // Remove `tasks` from `self` and place it in a `Context`.
-    let tasks = scheduler.tasks.take().expect("invalid state");
 
     let guard = Guard {
         context: Some(Context {
             shared: scheduler.spawner.shared.clone(),
-            tasks: RefCell::new(tasks),
         }),
         scheduler,
     };
@@ -198,19 +101,14 @@ impl Spawner {
         self.shared.schedule(task);
         handle
     }
-
-    fn pop(&self) -> Option<task::Notified<Arc<Shared>>> {
-        None
-    }
 }
 
 // ===== impl Shared =====
 
 impl Schedule for Arc<Shared> {
-    fn bind(task: Task<Self>) -> Arc<Shared> {
+    fn bind(_: Task<Self>) -> Arc<Shared> {
         CURRENT.with(|maybe_cx| {
             let cx = maybe_cx.expect("scheduler context missing");
-            cx.tasks.borrow_mut().owned.push_front(task);
             cx.shared.clone()
         })
     }

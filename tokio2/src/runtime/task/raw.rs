@@ -10,12 +10,6 @@ pub(super) struct RawTask {
 }
 
 pub(super) struct Vtable {
-    /// Poll the future
-    pub(super) poll: unsafe fn(NonNull<Header>),
-
-    /// Deallocate the memory
-    pub(super) dealloc: unsafe fn(NonNull<Header>),
-
     /// Read the task output, if complete
     pub(super) try_read_output: unsafe fn(NonNull<Header>, *mut (), &Waker),
 
@@ -26,8 +20,6 @@ pub(super) struct Vtable {
 /// Get the vtable for the requested `T` and `S` generics.
 pub(super) fn vtable<T: Future, S: Schedule>() -> &'static Vtable {
     &Vtable {
-        poll: poll::<T, S>,
-        dealloc: dealloc::<T, S>,
         try_read_output: try_read_output::<T, S>,
         drop_join_handle_slow: drop_join_handle_slow::<T, S>,
     }
@@ -45,28 +37,11 @@ impl RawTask {
         RawTask { ptr }
     }
 
-    pub(super) unsafe fn from_raw(ptr: NonNull<Header>) -> RawTask {
-        RawTask { ptr }
-    }
-
     /// Returns a reference to the task's meta structure.
     ///
     /// Safe as `Header` is `Sync`.
     pub(super) fn header(&self) -> &Header {
         unsafe { self.ptr.as_ref() }
-    }
-
-    /// Safety: mutual exclusion is required to call this function.
-    pub(super) fn poll(self) {
-        let vtable = self.header().vtable;
-        unsafe { (vtable.poll)(self.ptr) }
-    }
-
-    pub(super) fn dealloc(self) {
-        let vtable = self.header().vtable;
-        unsafe {
-            (vtable.dealloc)(self.ptr);
-        }
     }
 
     /// Safety: `dst` must be a `*mut Poll<super::Result<T::Output>>` where `T`
@@ -89,16 +64,6 @@ impl Clone for RawTask {
 }
 
 impl Copy for RawTask {}
-
-unsafe fn poll<T: Future, S: Schedule>(ptr: NonNull<Header>) {
-    let harness = Harness::<T, S>::from_raw(ptr);
-    harness.poll();
-}
-
-unsafe fn dealloc<T: Future, S: Schedule>(ptr: NonNull<Header>) {
-    let harness = Harness::<T, S>::from_raw(ptr);
-    harness.dealloc();
-}
 
 unsafe fn try_read_output<T: Future, S: Schedule>(
     ptr: NonNull<Header>,

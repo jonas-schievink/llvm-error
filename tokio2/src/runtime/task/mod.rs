@@ -21,29 +21,16 @@ use self::state::State;
 
 mod waker;
 
-use crate::util::linked_list;
-
 use std::future::Future;
 use std::marker::PhantomData;
-use std::ptr::NonNull;
-use std::{fmt, mem};
 
 /// An owned handle to the task, tracked by ref count
-#[repr(transparent)]
 pub(crate) struct Task<S: 'static> {
-    raw: RawTask,
     _p: PhantomData<S>,
 }
 
-unsafe impl<S> Send for Task<S> {}
-unsafe impl<S> Sync for Task<S> {}
-
 /// A task was notified
-#[repr(transparent)]
 pub(crate) struct Notified<S: 'static>(Task<S>);
-
-unsafe impl<S: Schedule> Send for Notified<S> {}
-unsafe impl<S: Schedule> Sync for Notified<S> {}
 
 /// Task result sent back
 pub(crate) type Result<T> = std::result::Result<T, JoinError>;
@@ -82,76 +69,9 @@ where
 {
     let raw = RawTask::new::<_, S>(task);
 
-    let task = Task {
-        raw,
-        _p: PhantomData,
-    };
+    let task = Task { _p: PhantomData };
 
     let join = JoinHandle::new(raw);
 
     (Notified(task), join)
-}
-
-impl<S: 'static> Task<S> {
-    pub(crate) unsafe fn from_raw(ptr: NonNull<Header>) -> Task<S> {
-        Task {
-            raw: RawTask::from_raw(ptr),
-            _p: PhantomData,
-        }
-    }
-
-    pub(crate) fn header(&self) -> &Header {
-        self.raw.header()
-    }
-}
-
-impl<S: Schedule> Notified<S> {
-    /// Run the task
-    pub(crate) fn run(self) {
-        self.0.raw.poll();
-        mem::forget(self);
-    }
-}
-
-impl<S: 'static> Drop for Task<S> {
-    fn drop(&mut self) {
-        // Decrement the ref count
-        if self.header().state.ref_dec() {
-            // Deallocate if this is the final ref count
-            self.raw.dealloc();
-        }
-    }
-}
-
-impl<S> fmt::Debug for Task<S> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "Task({:p})", self.header())
-    }
-}
-
-impl<S> fmt::Debug for Notified<S> {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "task::Notified({:p})", self.0.header())
-    }
-}
-
-/// # Safety
-///
-/// Tasks are pinned
-unsafe impl<S> linked_list::Link for Task<S> {
-    type Handle = Task<S>;
-    type Target = Header;
-
-    fn as_raw(handle: &Task<S>) -> NonNull<Header> {
-        handle.header().into()
-    }
-
-    unsafe fn from_raw(ptr: NonNull<Header>) -> Task<S> {
-        Task::from_raw(ptr)
-    }
-
-    unsafe fn pointers(target: NonNull<Header>) -> NonNull<linked_list::Pointers<Header>> {
-        // Not super great as it avoids some of looms checking...
-        NonNull::from(target.as_ref().owned.with_mut(|ptr| &mut *ptr))
-    }
 }

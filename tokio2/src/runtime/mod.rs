@@ -17,11 +17,10 @@ pub use self::handle::Handle;
 mod spawner;
 use self::spawner::Spawner;
 
-use crate::park::ParkThread;
 use std::future::Future;
 
 pub struct Runtime {
-    scheduler: BasicScheduler<ParkThread>,
+    scheduler: BasicScheduler,
     handle: Handle,
 }
 
