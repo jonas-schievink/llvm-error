@@ -1,5 +1,4 @@
 use crate::future::poll_fn;
-use crate::loom::sync::atomic::AtomicUsize;
 use crate::sync::mpsc::chan;
 
 /// Receive values from the associated `UnboundedSender`.
@@ -8,7 +7,7 @@ use crate::sync::mpsc::chan;
 /// [`unbounded_channel`](unbounded_channel) function.
 pub struct UnboundedReceiver<T> {
     /// The channel receiver
-    chan: chan::Rx<T, Semaphore>,
+    chan: chan::Rx<T>,
 }
 
 /// Creates an unbounded mpsc channel for communicating between asynchronous
@@ -22,16 +21,13 @@ pub struct UnboundedReceiver<T> {
 /// the channel. Using an `unbounded` channel has the ability of causing the
 /// process to run out of memory. In this case, the process will be aborted.
 pub fn unbounded_channel<T>() -> UnboundedReceiver<T> {
-    let (tx, rx) = chan::channel(AtomicUsize::new(0));
+    let (tx, rx) = chan::channel();
 
     drop(tx);
     let rx = UnboundedReceiver { chan: rx };
 
     rx
 }
-
-/// No capacity
-type Semaphore = AtomicUsize;
 
 impl<T> UnboundedReceiver<T> {
     pub async fn recv(&mut self) -> Option<T> {
