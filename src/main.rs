@@ -19,7 +19,7 @@ enum Out {
 fn main() {
     let mut rx = llvm_error::unbounded_channel::<Msg>();
     let entity = Mutex::new(());
-    llvm_error::run(async move {
+    blocking::block_on(async move {
         {
             let output = {
                 let mut fut = rx.recv();
