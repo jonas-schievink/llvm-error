@@ -17,7 +17,7 @@ enum Out {
 
 #[allow(unused_must_use)]
 fn main() {
-    let mut rx = llvm_error::unbounded_channel::<Msg>();
+    let (_tx, rx) = async_channel::unbounded::<Msg>();
     let entity = Mutex::new(());
     llvm_error::run(async move {
         {
@@ -33,11 +33,10 @@ fn main() {
                             }
                         };
                         #[allow(unused_variables)]
-                        match &out {
-                            Some(_msg) => {}
-                            _ => break,
-                        }
-                        return Ready(Out::_0(out));
+                        if out.is_err() {
+                            break
+                        };
+                        return Ready(Out::_0(out.ok()));
                     }
                     Ready(Out::_0(None))
                 })
