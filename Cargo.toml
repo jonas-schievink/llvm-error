@@ -3,3 +3,6 @@ name = "llvm-error"
 version = "0.1.0"
 authors = ["linyongxing <xtutu0202@gmail.com>"]
 edition = "2018"
+
+[dependencies]
+blocking = "0.4.7"
